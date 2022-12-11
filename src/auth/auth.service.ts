@@ -1,26 +1,48 @@
-import { Injectable } from '@nestjs/common';
-import { CreateAuthDto } from './dto/create-auth.dto';
-import { UpdateAuthDto } from './dto/update-auth.dto';
+import {
+	BadRequestException,
+	Injectable,
+	UnauthorizedException,
+} from '@nestjs/common'
+import { ModelType } from '@typegoose/typegoose/lib/types'
+import { compare, genSalt, hash } from 'bcryptjs'
+import { InjectModel } from 'nestjs-typegoose'
+import { UserModel } from 'src/user/user.model'
+import { AuthDto } from './dto/auth.dto'
 
 @Injectable()
 export class AuthService {
-  create(createAuthDto: CreateAuthDto) {
-    return 'This action adds a new auth';
-  }
+	constructor(
+		@InjectModel(UserModel) private readonly UserModel: ModelType<UserModel>
+	) {}
 
-  findAll() {
-    return `This action returns all auth`;
-  }
+	async login(dto: AuthDto) {
+		return this.validateUser(dto)
+	}
 
-  findOne(id: number) {
-    return `This action returns a #${id} auth`;
-  }
+	async register(dto: AuthDto) {
+		const oldUser = await this.UserModel.findOne({ email: dto.email })
 
-  update(id: number, updateAuthDto: UpdateAuthDto) {
-    return `This action updates a #${id} auth`;
-  }
+		if (oldUser)
+			throw new BadRequestException(
+				'User with this email is already in the system'
+			)
 
-  remove(id: number) {
-    return `This action removes a #${id} auth`;
-  }
+		const salt = await genSalt(10)
+
+		const newUser = new this.UserModel({
+			email: dto.email,
+			password: await hash(dto.password, salt),
+		})
+		return newUser.save()
+	}
+
+	async validateUser(dto: AuthDto) {
+		const user = await this.UserModel.findOne({ email: dto.email })
+		if (!user) throw new UnauthorizedException('User not found')
+
+		const isValidPassword = await compare(dto.password, user.password)
+		if (!isValidPassword) throw new UnauthorizedException('Invalid password')
+
+		return user
+	}
 }
